@@ -235,14 +235,6 @@ public class BasketballScoreServer extends Frame {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  CONFLICT RESOLUTION — scoring window
-    // ═══════════════════════════════════════════════════════════
-    /**
-     * Opens (or updates) the 3-second scoring window.
-     * Once all three scorers have submitted, or the timer fires,
-     * resolveScore() applies the highest value.
-     */
     private void handleScoreInput(int value, int scorerIndex) {
         synchronized (scoreLock) {
             if (!windowOpen) {
