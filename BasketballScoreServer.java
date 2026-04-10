@@ -5,6 +5,25 @@ import java.awt.event.*;
 import java.util.Arrays;
 import java.util.concurrent.*;
 
+/**
+ * ============================================================
+ *  BasketballScoreServer.java
+ *  Basketball Scoring System — TCP Server  (Milestone 2)
+ * ============================================================
+ *
+ *  Listens on PORT 5000 for exactly 3 scorer clients.
+ *  • Scoring commands (2 / 3) enter a 3-second conflict-resolution
+ *    window; the highest submitted value is applied.
+ *  • All other commands (F, T, Q, P, R, A, B) are applied
+ *    immediately from the first scorer who sends them.
+ *  • After every state change the full STATE|... string is
+ *    broadcast to all connected clients.
+ *  • An AWT window shows the live scoreboard on the server machine.
+ *
+ *  Compile:  javac *.java
+ *  Run:      java BasketballScoreServer
+ * ============================================================
+ */
 public class BasketballScoreServer extends Frame {
 
     // ── Constants ─────────────────────────────────────────────
@@ -160,18 +179,30 @@ public class BasketballScoreServer extends Frame {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  SERVER STARTUP — accept 3 scorer connections
+    //  SERVER STARTUP — always listening, allows reconnection
     // ═══════════════════════════════════════════════════════════
     public void startServer() {
         new Thread(() -> {
             try (ServerSocket serverSocket = new ServerSocket(PORT)) {
                 log("━━━ Server started on port " + PORT + " ━━━");
-                log("Waiting for " + NUM_SCORERS + " scorer clients…");
+                log("Waiting for " + NUM_SCORERS + " scorer clients...");
 
-                int count = 0;
-                while (count < NUM_SCORERS) {
+                // Keep accepting forever so disconnected scorers can reconnect
+                while (true) {
                     Socket socket = serverSocket.accept();
-                    final int idx = count;
+
+                    // Find the first open (disconnected) slot
+                    int idx = findOpenSlot();
+                    if (idx == -1) {
+                        log("⚠️  Extra connection rejected - all " + NUM_SCORERS + " slots full.");
+                        try {
+                            PrintWriter pw = new PrintWriter(socket.getOutputStream(), true);
+                            pw.println("ERROR|Server full - all scorer slots are occupied.");
+                            socket.close();
+                        } catch (IOException ignored) {}
+                        continue;
+                    }
+
                     try {
                         ScorerHandler handler = new ScorerHandler(socket, idx, this);
                         scorers[idx]         = handler;
@@ -180,23 +211,45 @@ public class BasketballScoreServer extends Frame {
 
                         log("✅ Scorer " + (idx + 1) + " connected from "
                             + socket.getInetAddress().getHostAddress());
-                        lblStatus.setText("Scorers online: " + (idx + 1) + "/" + NUM_SCORERS);
+
+                        // Send current game state immediately so reconnecting
+                        // scorer is caught up without waiting for the next event
+                        handler.getWriter().println(gameState.toProtocolString());
+
+                        int online = countConnected();
+                        if (online < NUM_SCORERS) {
+                            lblStatus.setText("Scorers online: " + online + "/" + NUM_SCORERS);
+                        } else {
+                            log("━━━ All " + NUM_SCORERS + " scorers connected! ━━━");
+                            broadcast(gameState.toProtocolString());
+                            refreshUI();
+                        }
 
                     } catch (IOException e) {
                         log("⚠️  Failed to set up scorer " + (idx + 1) + ": " + e.getMessage());
+                        scorerConnected[idx] = false;
                     }
-                    count++;
                 }
-
-                log("━━━ All " + NUM_SCORERS + " scorers connected! ━━━");
-                log("Send  P  from any scorer to start the game clock.");
-                broadcast(gameState.toProtocolString());
-                refreshUI();
 
             } catch (IOException e) {
                 log("❌ Server error: " + e.getMessage());
             }
         }, "AcceptThread").start();
+    }
+
+    /** Returns the index of the first disconnected slot, or -1 if all are full. */
+    private synchronized int findOpenSlot() {
+        for (int i = 0; i < NUM_SCORERS; i++) {
+            if (!scorerConnected[i]) return i;
+        }
+        return -1;
+    }
+
+    /** Returns how many scorer slots are currently connected. */
+    private synchronized int countConnected() {
+        int n = 0;
+        for (boolean b : scorerConnected) if (b) n++;
+        return n;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -235,6 +288,14 @@ public class BasketballScoreServer extends Frame {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  CONFLICT RESOLUTION — scoring window
+    // ═══════════════════════════════════════════════════════════
+    /**
+     * Opens (or updates) the 3-second scoring window.
+     * Once all three scorers have submitted, or the timer fires,
+     * resolveScore() applies the highest value.
+     */
     private void handleScoreInput(int value, int scorerIndex) {
         synchronized (scoreLock) {
             if (!windowOpen) {
@@ -398,7 +459,13 @@ public class BasketballScoreServer extends Frame {
     // ═══════════════════════════════════════════════════════════
     public void scorerDisconnected(int index) {
         scorerConnected[index] = false;
-        log("❌ Scorer " + (index + 1) + " disconnected.");
+        scorers[index] = null;
+        int online = countConnected();
+        log("❌ Scorer " + (index + 1) + " disconnected. (" + online + "/" + NUM_SCORERS + " remaining)");
+        EventQueue.invokeLater(() ->
+            lblStatus.setText("⚠️ Scorer " + (index + 1) +
+                " disconnected — waiting for reconnect... (" + online + "/" + NUM_SCORERS + ")")
+        );
     }
 
     // ═══════════════════════════════════════════════════════════
