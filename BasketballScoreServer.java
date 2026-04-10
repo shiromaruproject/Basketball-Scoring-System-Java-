@@ -5,25 +5,6 @@ import java.awt.event.*;
 import java.util.Arrays;
 import java.util.concurrent.*;
 
-/**
- * ============================================================
- *  BasketballScoreServer.java
- *  Basketball Scoring System — TCP Server  (Milestone 2)
- * ============================================================
- *
- *  Listens on PORT 5000 for exactly 3 scorer clients.
- *  • Scoring commands (2 / 3) enter a 3-second conflict-resolution
- *    window; the highest submitted value is applied.
- *  • All other commands (F, T, Q, P, R, A, B) are applied
- *    immediately from the first scorer who sends them.
- *  • After every state change the full STATE|... string is
- *    broadcast to all connected clients.
- *  • An AWT window shows the live scoreboard on the server machine.
- *
- *  Compile:  javac *.java
- *  Run:      java BasketballScoreServer
- * ============================================================
- */
 public class BasketballScoreServer extends Frame {
 
     // ── Constants ─────────────────────────────────────────────
